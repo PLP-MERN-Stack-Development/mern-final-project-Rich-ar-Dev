@@ -1,0 +1,39 @@
+name: Backend CI
+
+on:
+  push:
+    paths:
+      - 'backend/**'
+    branches: [ main ]
+  pull_request:
+    paths:
+      - 'backend/**'
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: backend/package-lock.json
+    
+    - name: Install dependencies
+      run: cd backend && npm ci
+    
+    - name: Run tests
+      run: cd backend && npm test
+      env:
+        NODE_ENV: test
+        MONGODB_URI: mongodb://localhost:27017/taskflow_test
+        JWT_SECRET: test_jwt_secret

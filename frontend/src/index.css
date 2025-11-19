@@ -1,0 +1,19 @@
+/* TEMPORARY FIX - Remove after testing */
+body {
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+}
+
+#root {
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+.App {
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+.forest-background {
+  z-index: 0 !important;
+}
