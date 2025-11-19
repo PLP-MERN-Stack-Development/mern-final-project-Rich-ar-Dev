@@ -1,13 +1,16 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
-const User = require('../models/User');
-const auth = require('../middleware/auth');
 
 const router = express.Router();
 
+// Mock user storage (replace with MongoDB later)
+let users = [];
+let userIdCounter = 1;
+
 const generateToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET, {
+  return jwt.sign({ userId }, process.env.JWT_SECRET || 'fallback-secret', {
     expiresIn: '7d'
   });
 };
@@ -26,26 +29,37 @@ router.post('/register', [
 
     const { username, email, password } = req.body;
 
-    const existingUser = await User.findOne({
-      $or: [{ email }, { username }]
-    });
-
+    // Check if user exists
+    const existingUser = users.find(user => user.email === email || user.username === username);
     if (existingUser) {
       return res.status(400).json({
         error: 'User with this email or username already exists'
       });
     }
 
-    const user = new User({ username, email, password });
-    await user.save();
+    // Hash password
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    const token = generateToken(user._id);
+    // Create user
+    const user = {
+      id: userIdCounter++,
+      username,
+      email,
+      password: hashedPassword,
+      role: 'user',
+      createdAt: new Date()
+    };
+
+    users.push(user);
+
+    const token = generateToken(user.id);
 
     res.status(201).json({
       message: 'User created successfully',
       token,
       user: {
-        id: user._id,
+        id: user.id,
         username: user.username,
         email: user.email,
         role: user.role
@@ -70,23 +84,25 @@ router.post('/login', [
 
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
+    // Find user
+    const user = users.find(user => user.email === email);
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const isMatch = await user.comparePassword(password);
+    // Check password
+    const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = generateToken(user._id);
+    const token = generateToken(user.id);
 
     res.json({
       message: 'Login successful',
       token,
       user: {
-        id: user._id,
+        id: user.id,
         username: user.username,
         email: user.email,
         role: user.role
@@ -98,15 +114,46 @@ router.post('/login', [
   }
 });
 
-// Get current user
-router.get('/me', auth, async (req, res) => {
+// Get current user (mock version without auth middleware)
+router.get('/me', (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
-    res.json(user);
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret');
+      const user = users.find(user => user.id === decoded.userId);
+      
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      res.json({
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role
+      });
+    } catch (jwtError) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
   } catch (error) {
     console.error('Get user error:', error);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// Get all users (for testing)
+router.get('/users', (req, res) => {
+  res.json(users.map(user => ({
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    role: user.role
+  })));
 });
 
 module.exports = router;

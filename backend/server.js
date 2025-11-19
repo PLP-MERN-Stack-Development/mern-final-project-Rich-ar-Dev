@@ -1,18 +1,9 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const http = require('http');
-const socketIo = require('socket.io');
 require('dotenv').config();
 
 const app = express();
-const server = http.createServer(app);
-const io = socketIo(server, {
-  cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:3000", // ✅ Use CLIENT_URL instead of FRONTEND_URL
-    methods: ["GET", "POST"]
-  }
-});
 
 // Middleware
 app.use(cors({
@@ -21,7 +12,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// ✅ ADD THIS - Simple root route for Render health checks
+// ✅ ADD THIS - Simple routes that work without MongoDB
 app.get('/', (req, res) => {
   res.json({ 
     message: 'TaskFlow Pro Backend API',
@@ -30,54 +21,60 @@ app.get('/', (req, res) => {
   });
 });
 
-// ✅ KEEP THIS - Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ 
     message: 'TaskFlow Pro Backend is running!',
     timestamp: new Date().toISOString(),
-    database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
-    environment: process.env.NODE_ENV || 'development'
+    database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'
   });
 });
 
-// Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/projects', require('./routes/projects'));
-app.use('/api/tasks', require('./routes/tasks'));
-app.use('/api/comments', require('./routes/comments'));
+// MongoDB connection with timeout and fallback
+const connectDB = async () => {
+  try {
+    if (!process.env.MONGODB_URI) {
+      console.log('⚠️  No MONGODB_URI found, using mock data');
+      return;
+    }
+    
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000, // Timeout after 5 seconds
+      socketTimeoutMS: 45000,
+    });
+    console.log('✅ MongoDB connected successfully');
+  } catch (error) {
+    console.error('❌ MongoDB connection failed:', error.message);
+    console.log('🔄 Continuing with mock data mode...');
+  }
+};
 
-// Socket.io for real-time updates
-io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
-  
-  socket.on('join-project', (projectId) => {
-    socket.join(projectId);
-  });
-  
-  socket.on('task-updated', (data) => {
-    socket.to(data.projectId).emit('task-update', data);
-  });
-  
-  socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
-  });
-});
+// Import routes safely
+const safeRequire = (path, fallbackRouter) => {
+  try {
+    return require(path);
+  } catch (error) {
+    console.log(`⚠️  Route ${path} failed, using fallback`);
+    return fallbackRouter;
+  }
+};
 
-// MongoDB connection with better error handling
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/taskflow-pro', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('MongoDB connected successfully'))
-.catch(err => {
-  console.error('MongoDB connection error:', err);
-  process.exit(1); // Exit if database connection fails
-});
+// Create fallback routes
+const fallbackRouter = express.Router();
+fallbackRouter.get('/', (req, res) => res.json({ message: 'Mock endpoint' }));
+fallbackRouter.post('/', (req, res) => res.json({ message: 'Mock endpoint', data: req.body }));
+
+// Routes - they won't crash the server if MongoDB is down
+app.use('/api/auth', safeRequire('./routes/auth', fallbackRouter));
+app.use('/api/projects', safeRequire('./routes/projects', fallbackRouter));
+app.use('/api/tasks', safeRequire('./routes/tasks', fallbackRouter));
+app.use('/api/comments', safeRequire('./routes/comments', fallbackRouter));
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-});
 
-module.exports = app; // For testing
+// Start server
+connectDB().then(() => {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📊 Health: http://localhost:${PORT}/api/health`);
+  });
+});

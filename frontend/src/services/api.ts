@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api';
-
+// In your frontend services/api.js or similar file
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://mern-final-project-rich-ar-dev-1.onrender.com';
 // Create axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
